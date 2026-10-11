@@ -92,7 +92,10 @@ android {
                 .map { it as com.android.build.gradle.internal.api.ApkVariantOutputImpl }
                 .forEach { output ->
                     val abi = output.getFilter("ABI") ?: "universal"
-                    output.outputFileName = "PattNG_${variant.versionName}-fdroid_${abi}.apk"
+                    // PattNG: GitHub lists a release's files by name, and a version starts with a digit, which sorts
+                    // before "fdroid": the F-Droid files come after the others. The app's update check finds its file
+                    // by "fdroid" and the ABI anywhere in the name, see UpdateCheckerManager.getDownloadUrl.
+                    output.outputFileName = "PattNG_fdroid_${variant.versionName}_${abi}.apk"
                     if (versionCodes.containsKey(abi)) {
                         output.versionCodeOverride =
                             (100 * variant.versionCode + versionCodes[abi]!!).plus(5000000)
