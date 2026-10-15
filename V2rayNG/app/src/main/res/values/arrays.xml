@@ -70,6 +70,7 @@
     <string-array name="streamsecurity_utls" translatable="false">
         <item />
         <item>chrome</item>
+        <item>hellochrome_120</item>
         <item>firefox</item>
         <item>safari</item>
         <item>ios</item>
