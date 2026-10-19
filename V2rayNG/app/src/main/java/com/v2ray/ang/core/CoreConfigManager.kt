@@ -1068,16 +1068,16 @@ object CoreConfigManager {
         }
 
         if (SettingsManager.isVpnMode()) {
-            if (!SettingsManager.isUsingXrayTun()) {
-                //hev-socks5-tunnel dns routing
-                v2rayConfig.routing.rules.add(
-                    0, V2rayConfig.RoutingBean.RulesBean(
-                        inboundTag = arrayListOf("socks"),
-                        outboundTag = "dns-out",
-                        port = "53",
-                    )
+            //hev-socks5-tunnel dns routing
+            // PattNG: kept with Xray-core's TUN too, for the root LAN sharing and the clients of the local proxy
+            v2rayConfig.routing.rules.add(
+                0, V2rayConfig.RoutingBean.RulesBean(
+                    inboundTag = arrayListOf("socks"),
+                    outboundTag = "dns-out",
+                    port = "53",
                 )
-            } else {
+            )
+            if (SettingsManager.isUsingXrayTun()) {
                 v2rayConfig.routing.rules.add(
                     0, V2rayConfig.RoutingBean.RulesBean(
                         inboundTag = arrayListOf("tun"),
