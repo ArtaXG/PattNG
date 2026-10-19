@@ -926,7 +926,7 @@ object CoreConfigManager {
     //region some sub function
 
     private fun needTun(): Boolean {
-        return SettingsManager.isVpnMode() && !SettingsManager.isUsingHevTun()
+        return SettingsManager.isUsingXrayTun()
     }
 
     /**
@@ -1068,7 +1068,7 @@ object CoreConfigManager {
         }
 
         if (SettingsManager.isVpnMode()) {
-            if (SettingsManager.isUsingHevTun()) {
+            if (!SettingsManager.isUsingXrayTun()) {
                 //hev-socks5-tunnel dns routing
                 v2rayConfig.routing.rules.add(
                     0, V2rayConfig.RoutingBean.RulesBean(

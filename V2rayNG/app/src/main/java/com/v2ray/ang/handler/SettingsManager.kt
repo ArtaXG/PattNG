@@ -507,7 +507,8 @@ object SettingsManager {
      * @return True if HEV TUN is used, false otherwise.
      */
     fun isUsingHevTun(): Boolean {
-        return MmkvManager.decodeSettingsBool(AppConfig.PREF_USE_HEV_TUNNEL, true)
+        // PattNG: Xray-core's own TUN is the default
+        return MmkvManager.decodeSettingsBool(AppConfig.PREF_USE_HEV_TUNNEL, false)
     }
 
     /**
@@ -527,11 +528,24 @@ object SettingsManager {
     }
 
     /**
+     * Check if Xray-core's own TUN inbound carries the traffic: the VPN mode with HEV TUN off. The root mode always
+     * runs its own HEV tun, whichever mode is selected.
+     */
+    fun isUsingXrayTun(): Boolean {
+        return usesXrayTun(isVpnMode(), isRootMode(), isUsingHevTun())
+    }
+
+    /** Whether Xray-core's own TUN inbound carries the traffic, see [isUsingXrayTun]. */
+    internal fun usesXrayTun(vpnMode: Boolean, rootMode: Boolean, hevTun: Boolean): Boolean {
+        return vpnMode && !rootMode && !hevTun
+    }
+
+    /**
      *  Check if process routing can be used.
      */
     fun canUseProcessRouting(): Boolean {
         // Must xray tun
-        if (isUsingHevTun()) {
+        if (!isUsingXrayTun()) {
             return false
         }
 
