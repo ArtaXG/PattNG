@@ -541,6 +541,38 @@ object SettingsManager {
     }
 
     /**
+     * Check if the core keeps its local proxy, the SOCKS inbound that takes HTTP as well: always for HEV TUN in the VPN
+     * mode, the root mode and its LAN sharing, which all reach the core through it, and otherwise as set.
+     */
+    fun isLocalProxyKept(): Boolean {
+        return keepsLocalProxy(
+            vpnMode = isVpnMode(),
+            hevTun = isUsingHevTun(),
+            rootMode = isRootMode(),
+            lanSharing = MmkvManager.decodeSettingsBool(AppConfig.PREF_ROOT_LAN_SHARING),
+            localProxySet = MmkvManager.decodeSettingsBool(AppConfig.PREF_ENABLE_LOCAL_PROXY, true),
+        )
+    }
+
+    /** Whether the core keeps its local proxy, see [isLocalProxyKept]. */
+    internal fun keepsLocalProxy(vpnMode: Boolean, hevTun: Boolean, rootMode: Boolean, lanSharing: Boolean, localProxySet: Boolean): Boolean {
+        return (vpnMode && hevTun) || rootMode || lanSharing || localProxySet
+    }
+
+    /**
+     * Check if the VPN hands apps the local proxy as their HTTP proxy: as set, and only while the core keeps the local
+     * proxy, since the HTTP proxy would point at a closed port otherwise.
+     */
+    fun isAppendingHttpProxy(): Boolean {
+        return appendsHttpProxy(MmkvManager.decodeSettingsBool(AppConfig.PREF_APPEND_HTTP_PROXY), isLocalProxyKept())
+    }
+
+    /** Whether the VPN hands apps the local HTTP proxy, see [isAppendingHttpProxy]. */
+    internal fun appendsHttpProxy(appendSet: Boolean, localProxyKept: Boolean): Boolean {
+        return appendSet && localProxyKept
+    }
+
+    /**
      *  Check if process routing can be used.
      */
     fun canUseProcessRouting(): Boolean {
