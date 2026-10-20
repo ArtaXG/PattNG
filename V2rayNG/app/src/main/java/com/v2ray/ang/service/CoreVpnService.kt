@@ -233,7 +233,7 @@ class CoreVpnService : VpnService(), ServiceControl {
      * This includes IP addresses, routing rules, and DNS servers.
      *
      * @param builder The VPN Builder to configure
-     * @param ipv6 Whether the interface takes the IPv6 address, routes and DNS servers ([vpnDnsServers])
+     * @param ipv6 Whether the interface takes the IPv6 address, routes and DNS servers ([addVpnDnsServers])
      */
     private fun configureNetworkSettings(builder: Builder, ipv6: Boolean) {
         val vpnConfig = SettingsManager.getCurrentVpnInterfaceAddressConfig()
@@ -267,8 +267,8 @@ class CoreVpnService : VpnService(), ServiceControl {
         //if (MmkvManager.decodeSettingsBool(AppConfig.PREF_LOCAL_DNS_ENABLED) == true) {
         //  builder.addDnsServer(PRIVATE_VLAN4_ROUTER)
         //} else {
-        vpnDnsServers(SettingsManager.getVpnDnsServers(), ipv6).forEach {
-            builder.addDnsServer(it)
+        addVpnDnsServers(SettingsManager.getVpnDnsServers(), ipv6, { builder.addDnsServer(it) }) { server, e ->
+            LogUtil.w(AppConfig.TAG, "StartCore-VPN: skipping the VPN DNS server $server, which Android refuses, guid=${MmkvManager.getSelectServer()}", e)
         }
 
         //builder.setSession(V2RayServiceManager.getRunningServerName())
@@ -407,7 +407,7 @@ class CoreVpnService : VpnService(), ServiceControl {
 /**
  * PattNG: establishes the VPN interface through [establish], and when that fails while the interface takes IPv6,
  * once more through [establishWithoutIpv6]: a kernel with IPv6 turned off refuses the IPv6 address, and the VPN
- * then runs on IPv4 alone, its DNS servers included ([vpnDnsServers]), which blocks IPv6 for the apps it covers.
+ * then runs on IPv4 alone, its DNS servers included ([addVpnDnsServers]), which blocks IPv6 for the apps it covers.
  * A failure without IPv6 stays a failure. Needed for as long as the interface takes IPv6 by default.
  */
 internal fun <T> establishFallingBackToIpv4(
@@ -428,13 +428,33 @@ internal fun <T> establishFallingBackToIpv4(
 }
 
 /**
- * PattNG: the VPN interface's DNS servers, the addresses among [servers]. On an interface without [ipv6], whether the
- * user turned it off or the kernel refused it, IPv6 ones are left out: a DNS server allows its address family on the
- * VPN (VpnService.Builder.addDnsServer, allowFamily), so Android would leave the VPN's IPv6 unblocked, and IPv6 would
- * go around the VPN. Without IPv6 and with none left, [AppConfig.DNS_VPN], as the default network's servers would be
- * used otherwise; with IPv6, the addresses as they are, even none.
+ * PattNG: adds the VPN interface's DNS servers, the addresses among [servers], through [add], which is
+ * VpnService.Builder.addDnsServer: it refuses a loopback or wildcard (0.0.0.0, ::) address, or one it cannot read,
+ * with an IllegalArgumentException, and such a server is skipped ([onRefused]) rather than ending the start. On an
+ * interface without [ipv6], whether the user turned it off or the kernel refused it, IPv6 ones are left out: a DNS
+ * server allows its address family on the VPN (addDnsServer, allowFamily), so Android would leave the VPN's IPv6
+ * unblocked, and IPv6 would go around the VPN. When the servers given leave none, or none were given to an interface
+ * without IPv6, [AppConfig.DNS_VPN], as the default network's servers would be used otherwise; none given with IPv6
+ * stays none. Returns the servers added.
  */
-internal fun vpnDnsServers(servers: List<String>, ipv6: Boolean): List<String> {
-    val addresses = servers.filter { Utils.isPureIpAddress(it) && (ipv6 || !it.contains(':')) }
-    return if (ipv6 || addresses.isNotEmpty()) addresses else listOf(AppConfig.DNS_VPN)
+internal fun addVpnDnsServers(
+    servers: List<String>,
+    ipv6: Boolean,
+    add: (String) -> Unit,
+    onRefused: (String, IllegalArgumentException) -> Unit,
+): List<String> {
+    val added = servers.filter { Utils.isPureIpAddress(it) && (ipv6 || !it.contains(':')) }.filter {
+        try {
+            add(it)
+            true
+        } catch (e: IllegalArgumentException) {
+            onRefused(it, e)
+            false
+        }
+    }
+    if (added.isNotEmpty() || (ipv6 && servers.isEmpty())) {
+        return added
+    }
+    add(AppConfig.DNS_VPN)
+    return listOf(AppConfig.DNS_VPN)
 }
