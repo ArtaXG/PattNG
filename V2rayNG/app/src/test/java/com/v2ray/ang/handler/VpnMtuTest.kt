@@ -24,9 +24,17 @@ class VpnMtuTest {
     fun noNumberIsTheDefaultMtu() {
         assertEquals(AppConfig.VPN_MTU, SettingsManager.vpnMtu(null))
         assertEquals(AppConfig.VPN_MTU, SettingsManager.vpnMtu(""))
+        assertEquals(AppConfig.VPN_MTU, SettingsManager.vpnMtu(" \n"))
         assertEquals(AppConfig.VPN_MTU, SettingsManager.vpnMtu("mtu"))
-        // Read as stored: a number with a space or a line break around it is none.
-        assertEquals(AppConfig.VPN_MTU, SettingsManager.vpnMtu(" 1400"))
-        assertEquals(AppConfig.VPN_MTU, SettingsManager.vpnMtu("1400\n"))
+        assertEquals(AppConfig.VPN_MTU, SettingsManager.vpnMtu("14 00"))
+    }
+
+    @Test
+    fun spacesAndLineBreaksAroundTheNumberAreIgnored() {
+        // The settings dialog takes several lines, so Enter after the number stores a line break with it.
+        assertEquals(1400, SettingsManager.vpnMtu("1400\n"))
+        assertEquals(1400, SettingsManager.vpnMtu(" 1400"))
+        assertEquals(1400, SettingsManager.vpnMtu("\t1400 \r\n"))
+        assertEquals(AppConfig.VPN_MTU, SettingsManager.vpnMtu(" 0\n"))
     }
 }
