@@ -122,7 +122,7 @@ object RootProxyManager {
         val logFile = File(runDir, "tun2socks.log").absolutePath
         val cfgFile = File(runDir, "tun2socks.yml")
         val oomGuardPid = File(runDir, "oomguard.pid").absolutePath
-        val ipv6 = MmkvManager.decodeSettingsBool(AppConfig.PREF_IPV6_ENABLED)
+        val ipv6 = MmkvManager.decodeSettingsBool(AppConfig.PREF_IPV6_ENABLED, AppConfig.DEFAULT_IPV6_ENABLED)
         val lanShare = forceLanShare || MmkvManager.decodeSettingsBool(AppConfig.PREF_ROOT_LAN_SHARING)
         val corePid = Process.myPid()
 
