@@ -126,7 +126,7 @@ object RootProxyManager {
         val lanShare = forceLanShare || MmkvManager.decodeSettingsBool(AppConfig.PREF_ROOT_LAN_SHARING)
         val corePid = Process.myPid()
 
-        val config = buildHevConfig(socksUsername, socksPassword, port, ipv6)
+        val config = buildHevConfig(socksUsername, socksPassword, port)
         if (!writeHevConfig(cfgFile, config)) {
             return null
         }
@@ -186,17 +186,14 @@ object RootProxyManager {
             if (captureDeviceTraffic) {
                 // IPv6 is best-effort: never fail the (working) IPv4 setup over it.
                 appendLine("set +e")
+                // v6 disabled, or the tun refusing it: blackhole native v6 egress for the captured apps so
+                // they fall back to v4-through-proxy, matching what a v4-only VpnService does.
+                val blackhole = buildV6Blackhole(appUid, perAppEnabled, bypassApps, selectedUids)
                 if (ipv6) {
                     // route the device's v6 into the tun, same as v4
-                    appendLine("ip -6 addr add ${AppConfig.ROOT_TUN_ADDR_V6} dev $TUN 2>/dev/null || true")
-                    appendLine("ip -6 route replace default dev $TUN table $TABLE 2>/dev/null || true")
-                    appendLine("ip -6 rule add fwmark $MARK table $TABLE priority $PRIORITY 2>/dev/null || true")
-                    append(buildMangleMarking("ip6tables", appUid, perAppEnabled, bypassApps, selectedUids))
-                    append(buildDnsDnat("ip6tables"))
+                    append(deviceIpv6Setup(buildMangleMarking("ip6tables", appUid, perAppEnabled, bypassApps, selectedUids), blackhole))
                 } else {
-                    // v6 disabled: blackhole native v6 egress for the captured apps so they
-                    // fall back to v4-through-proxy, matching what a v4-only VpnService does.
-                    append(buildV6Blackhole(appUid, perAppEnabled, bypassApps, selectedUids))
+                    append(blackhole)
                 }
             }
         }
@@ -204,21 +201,19 @@ object RootProxyManager {
 
     /**
      * hev-socks5-tunnel YAML config. hev creates the tun device named [TUN] itself, assigns it
-     * the tun addresses, and forwards everything it receives to the core's SOCKS inbound on
-     * loopback (TCP + UDP). MTU is taken from the existing VPN MTU setting. v6 is only given a
-     * tun address when IPv6 is enabled; whether v6 actually flows in is decided separately by
-     * the v6 route into [TABLE].
+     * the IPv4 tun address, and forwards everything it receives to the core's SOCKS inbound on
+     * loopback (TCP + UDP). MTU is taken from the existing VPN MTU setting. The IPv6 tun address
+     * is left to the setup script, best effort ([deviceIpv6Setup], [buildLanShareSetup]): hev exits
+     * when the kernel refuses an address, which would stop the IPv4 setup too.
      */
-    private fun buildHevConfig(socksUsername: String?, socksPassword: String?, socksPort: Int, ipv6: Boolean): String {
+    private fun buildHevConfig(socksUsername: String?, socksPassword: String?, socksPort: Int): String {
         val v4 = AppConfig.ROOT_TUN_ADDR_V4.substringBefore("/")
-        val v6 = AppConfig.ROOT_TUN_ADDR_V6.substringBefore("/")
         return buildString {
             appendLine("tunnel:")
             appendLine("  name: '$TUN'")
             appendLine("  mtu: ${SettingsManager.getVpnMtu()}")
             appendLine("  multi-queue: true")
             appendLine("  ipv4: '$v4'")
-            if (ipv6) appendLine("  ipv6: '$v6'")
             appendLine("socks5:")
             appendLine("  port: $socksPort")
             appendLine("  address: '${AppConfig.LOOPBACK}'")
@@ -389,6 +384,25 @@ object RootProxyManager {
         }
     }
 
+    /**
+     * The device's own IPv6 in Root mode, best effort, run under `set +e`. The tun takes the v6
+     * address when the kernel lets it; when the v6 route into [TABLE] and its rule are added, the
+     * device's v6 is marked into the tun ([marking]) and the setup succeeds whatever a marking step
+     * did. Otherwise, as on a kernel that keeps IPv6 off on new interfaces, marked v6 would leave
+     * natively, so [blackhole] blocks it instead, and the setup fails only if that fails, as with
+     * IPv6 off. There is no v6 DNS DNAT: it needs the ip6tables nat table, which some kernels lack,
+     * and an IPv6 resolver to rewrite to.
+     */
+    internal fun deviceIpv6Setup(marking: String, blackhole: String): String = buildString {
+        appendLine("ip -6 addr add ${AppConfig.ROOT_TUN_ADDR_V6} dev $TUN 2>/dev/null || true")
+        appendLine("if ip -6 route replace default dev $TUN table $TABLE 2>/dev/null && ip -6 rule add fwmark $MARK table $TABLE priority $PRIORITY 2>/dev/null; then")
+        append(marking)
+        appendLine("true")
+        appendLine("else")
+        append(blackhole)
+        appendLine("fi")
+    }
+
     // -------------------------------------------------- LAN / tethering sharing
 
     /**
@@ -522,6 +536,10 @@ object RootProxyManager {
             appendLine("iptables -t nat -D OUTPUT -j ${AppConfig.ROOT_DNS_OUT_CHAIN} 2>/dev/null || true")
             appendLine("iptables -t nat -F ${AppConfig.ROOT_DNS_OUT_CHAIN} 2>/dev/null || true")
             appendLine("iptables -t nat -X ${AppConfig.ROOT_DNS_OUT_CHAIN} 2>/dev/null || true")
+            // its IPv6 copy, which only older versions set up
+            appendLine("ip6tables -t nat -D OUTPUT -j ${AppConfig.ROOT_DNS_OUT_CHAIN} 2>/dev/null || true")
+            appendLine("ip6tables -t nat -F ${AppConfig.ROOT_DNS_OUT_CHAIN} 2>/dev/null || true")
+            appendLine("ip6tables -t nat -X ${AppConfig.ROOT_DNS_OUT_CHAIN} 2>/dev/null || true")
             // IPv6 LAN-sharing chains (forward accept/reject + forwarded-client marking)
             appendLine("ip6tables -D FORWARD -j ${AppConfig.ROOT_V6_FWD_CHAIN} 2>/dev/null || true")
             appendLine("ip6tables -F ${AppConfig.ROOT_V6_FWD_CHAIN} 2>/dev/null || true")
