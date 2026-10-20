@@ -184,17 +184,13 @@ object RootProxyManager {
                 append(buildLanShareSetup(captureDeviceTraffic, ipv6))
             }
             if (captureDeviceTraffic) {
-                // IPv6 is best-effort: never fail the (working) IPv4 setup over it.
-                appendLine("set +e")
                 // v6 disabled, or the tun refusing it: blackhole native v6 egress for the captured apps so
                 // they fall back to v4-through-proxy, matching what a v4-only VpnService does.
                 val blackhole = buildV6Blackhole(appUid, perAppEnabled, bypassApps, selectedUids)
-                if (ipv6) {
-                    // route the device's v6 into the tun, same as v4
-                    append(deviceIpv6Setup(buildMangleMarking("ip6tables", appUid, perAppEnabled, bypassApps, selectedUids), blackhole))
-                } else {
-                    append(blackhole)
-                }
+                // route the device's v6 into the tun, same as v4
+                val marking = if (ipv6) buildMangleMarking("ip6tables", appUid, perAppEnabled, bypassApps, selectedUids) else null
+                // Must stay last: its exit status is the script's.
+                append(deviceIpv6Part(marking, blackhole))
             }
         }
     }
@@ -385,17 +381,33 @@ object RootProxyManager {
     }
 
     /**
-     * The device's own IPv6 in Root mode, best effort, run under `set +e`. The tun takes the v6
-     * address when the kernel lets it; when the v6 route into [TABLE] and its rule are added, the
-     * device's v6 is marked into the tun ([marking]) and the setup succeeds whatever a marking step
-     * did. Otherwise, as on a kernel that keeps IPv6 off on new interfaces, marked v6 would leave
-     * natively, so [blackhole] blocks it instead, and the setup fails only if that fails, as with
-     * IPv6 off. There is no v6 DNS DNAT: it needs the ip6tables nat table, which some kernels lack,
-     * and an IPv6 resolver to rewrite to.
+     * The last part of the Root mode setup: the device's own IPv6, under `set +e` so that no IPv6
+     * step aborts the script. IPv6 never fails the (working) IPv4 setup, unless it can be neither
+     * routed into the tun nor blocked. With IPv6 on ([marking] given) see [deviceIpv6Setup]; with it
+     * off, the [blackhole], whose last step's status is the script's, as before.
+     */
+    internal fun deviceIpv6Part(marking: String?, blackhole: String): String = buildString {
+        appendLine("set +e")
+        append(if (marking != null) deviceIpv6Setup(marking, blackhole) else blackhole)
+    }
+
+    /**
+     * The device's own IPv6 with IPv6 on, best effort. When the tun takes the v6 address and the
+     * v6 route into [TABLE] and its rule are added, the device's v6 is marked into the tun
+     * ([marking]), and the setup succeeds whatever a marking step did. Otherwise, as on a kernel
+     * that keeps IPv6 off on new interfaces, marked v6 would leave natively or die in the tun
+     * (kernels before 4.17 take the route even then; the address they all refuse), so [blackhole]
+     * rejects it instead, and the setup fails only if hooking the blackhole into OUTPUT fails, as
+     * with IPv6 off. There is no v6 DNS DNAT: it needs the ip6tables nat table, which some kernels
+     * lack, and an IPv6 resolver to rewrite to.
      */
     internal fun deviceIpv6Setup(marking: String, blackhole: String): String = buildString {
-        appendLine("ip -6 addr add ${AppConfig.ROOT_TUN_ADDR_V6} dev $TUN 2>/dev/null || true")
-        appendLine("if ip -6 route replace default dev $TUN table $TABLE 2>/dev/null && ip -6 rule add fwmark $MARK table $TABLE priority $PRIORITY 2>/dev/null; then")
+        val addressRouteAndRule = listOf(
+            "ip -6 addr replace ${AppConfig.ROOT_TUN_ADDR_V6} dev $TUN",
+            "ip -6 route replace default dev $TUN table $TABLE",
+            "ip -6 rule add fwmark $MARK table $TABLE priority $PRIORITY",
+        ).joinToString(" && ") { "$it 2>/dev/null" }
+        appendLine("if $addressRouteAndRule; then")
         append(marking)
         appendLine("true")
         appendLine("else")
@@ -469,7 +481,8 @@ object RootProxyManager {
             if (ipv6) {
                 // When the device itself isn't capturing v6 (VPN-mode sharing) the tun table
                 // has no v6 default and the tun has no v6 address — add them so marked client
-                // v6 has somewhere to go. In Root mode the device-capture block already did.
+                // v6 has somewhere to go. In Root mode the device-capture block, later in the
+                // script, adds them when the tun takes v6; otherwise client v6 ends at the REJECT.
                 if (!captureDeviceTraffic) {
                     appendLine("ip -6 addr add ${AppConfig.ROOT_TUN_ADDR_V6} dev $TUN 2>/dev/null || true")
                     appendLine("ip -6 route replace default dev $TUN table $TABLE 2>/dev/null || true")
@@ -515,7 +528,7 @@ object RootProxyManager {
                 appendLine("$cmd -t mangle -F $CHAIN 2>/dev/null || true")
                 appendLine("$cmd -t mangle -X $CHAIN 2>/dev/null || true")
             }
-            // IPv6 blackhole chain (only set up when v6 is disabled; harmless if absent)
+            // IPv6 blackhole chain (set up when v6 is off or the tun takes none; harmless if absent)
             appendLine("ip6tables -t filter -D OUTPUT -j ${AppConfig.ROOT_V6_CHAIN} 2>/dev/null || true")
             appendLine("ip6tables -t filter -F ${AppConfig.ROOT_V6_CHAIN} 2>/dev/null || true")
             appendLine("ip6tables -t filter -X ${AppConfig.ROOT_V6_CHAIN} 2>/dev/null || true")
@@ -536,10 +549,13 @@ object RootProxyManager {
             appendLine("iptables -t nat -D OUTPUT -j ${AppConfig.ROOT_DNS_OUT_CHAIN} 2>/dev/null || true")
             appendLine("iptables -t nat -F ${AppConfig.ROOT_DNS_OUT_CHAIN} 2>/dev/null || true")
             appendLine("iptables -t nat -X ${AppConfig.ROOT_DNS_OUT_CHAIN} 2>/dev/null || true")
-            // its IPv6 copy, which only older versions set up
+            // its IPv6 copy, which only older versions set up; only where the nat table is listed,
+            // as touching it otherwise could create it
+            appendLine("if grep -qx nat /proc/net/ip6_tables_names 2>/dev/null; then")
             appendLine("ip6tables -t nat -D OUTPUT -j ${AppConfig.ROOT_DNS_OUT_CHAIN} 2>/dev/null || true")
             appendLine("ip6tables -t nat -F ${AppConfig.ROOT_DNS_OUT_CHAIN} 2>/dev/null || true")
             appendLine("ip6tables -t nat -X ${AppConfig.ROOT_DNS_OUT_CHAIN} 2>/dev/null || true")
+            appendLine("fi")
             // IPv6 LAN-sharing chains (forward accept/reject + forwarded-client marking)
             appendLine("ip6tables -D FORWARD -j ${AppConfig.ROOT_V6_FWD_CHAIN} 2>/dev/null || true")
             appendLine("ip6tables -F ${AppConfig.ROOT_V6_FWD_CHAIN} 2>/dev/null || true")
