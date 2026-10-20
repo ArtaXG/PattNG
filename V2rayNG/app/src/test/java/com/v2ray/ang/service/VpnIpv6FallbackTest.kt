@@ -70,15 +70,19 @@ class VpnIpv6FallbackTest {
     }
 
     @Test
-    fun `an interface without IPv6 takes no IPv6 DNS server once IPv6 was refused`() {
+    fun `an interface without IPv6 takes no IPv6 DNS server`() {
         val servers = listOf("8.8.8.8", "2001:4860:4860::8888", "dns.google")
 
-        // As before: every address.
-        assertEquals(listOf("8.8.8.8", "2001:4860:4860::8888"), vpnDnsServers(servers, ipv6Dns = true))
-        // An IPv6 one would leave the VPN's IPv6 unblocked.
-        assertEquals(listOf("8.8.8.8"), vpnDnsServers(servers, ipv6Dns = false))
+        // With IPv6: every address.
+        assertEquals(listOf("8.8.8.8", "2001:4860:4860::8888"), vpnDnsServers(servers, ipv6 = true))
+        // Without, turned off or refused: an IPv6 one would leave the VPN's IPv6 unblocked.
+        assertEquals(listOf("8.8.8.8"), vpnDnsServers(servers, ipv6 = false))
         // With none left, the default VPN DNS rather than the default network's.
-        assertEquals(listOf("8.8.8.8"), vpnDnsServers(listOf("2001:4860:4860::8888"), ipv6Dns = false))
-        assertEquals(listOf("1.1.1.1"), vpnDnsServers(listOf("1.1.1.1", "2606:4700:4700::1111"), ipv6Dns = false))
+        assertEquals(listOf("8.8.8.8"), vpnDnsServers(listOf("2001:4860:4860::8888"), ipv6 = false))
+        assertEquals(listOf("8.8.8.8"), vpnDnsServers(listOf("[2001:4860:4860::8888]"), ipv6 = false))
+        assertEquals(listOf("8.8.8.8"), vpnDnsServers(emptyList(), ipv6 = false))
+        assertEquals(listOf("1.1.1.1"), vpnDnsServers(listOf("1.1.1.1", "2606:4700:4700::1111"), ipv6 = false))
+        // With IPv6 the list stays as it is, even empty.
+        assertEquals(emptyList<String>(), vpnDnsServers(emptyList(), ipv6 = true))
     }
 }
