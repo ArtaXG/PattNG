@@ -499,7 +499,16 @@ object SettingsManager {
      * Get the VPN MTU from settings, defaulting to AppConfig.VPN_MTU.
      */
     fun getVpnMtu(): Int {
-        return Utils.parseInt(MmkvManager.decodeSettingsString(AppConfig.PREF_VPN_MTU), AppConfig.VPN_MTU)
+        return vpnMtu(MmkvManager.decodeSettingsString(AppConfig.PREF_VPN_MTU))
+    }
+
+    /**
+     * PattNG: the VPN MTU [stored] holds, or AppConfig.VPN_MTU when it is not a whole number above 0 as stored, with
+     * no space or line break around it, see [getVpnMtu]: VpnService.Builder.setMtu refuses 0 and less with an
+     * exception, and the VPN would not start.
+     */
+    internal fun vpnMtu(stored: String?): Int {
+        return Utils.parseInt(stored, AppConfig.VPN_MTU).takeIf { it > 0 } ?: AppConfig.VPN_MTU
     }
 
     /**

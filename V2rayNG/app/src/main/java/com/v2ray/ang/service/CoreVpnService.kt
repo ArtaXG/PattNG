@@ -182,36 +182,39 @@ class CoreVpnService : VpnService(), ServiceControl {
      * @return True if the VPN service was configured successfully, false otherwise.
      */
     private fun configureVpnService(): Boolean {
-        val ipv6 = MmkvManager.decodeSettingsBool(AppConfig.PREF_IPV6_ENABLED, AppConfig.DEFAULT_IPV6_ENABLED)
-        val builder = Builder()
-
-        // Configure network settings (addresses, routing and DNS)
-        configureNetworkSettings(builder, ipv6)
-
-        // Configure app-specific settings (session name and per-app proxy)
-        configurePerAppProxy(builder)
-
-        // Close the old interface since the parameters have been changed
+        // PattNG: the builder's set-up from the settings sits in the try too, so that a setting the builder refuses, or
+        // one that cannot be read, ends the start like a failed establish rather than escaping onStartCommand and
+        // ending the process.
         try {
-            if (::mInterface.isInitialized) {
-                mInterface.close()
+            val ipv6 = MmkvManager.decodeSettingsBool(AppConfig.PREF_IPV6_ENABLED, AppConfig.DEFAULT_IPV6_ENABLED)
+            val builder = Builder()
+
+            // Configure network settings (addresses, routing and DNS)
+            configureNetworkSettings(builder, ipv6)
+
+            // Configure app-specific settings (session name and per-app proxy)
+            configurePerAppProxy(builder)
+
+            // Close the old interface since the parameters have been changed
+            try {
+                if (::mInterface.isInitialized) {
+                    mInterface.close()
+                }
+            } catch (e: Exception) {
+                LogUtil.w(AppConfig.TAG, "StartCore-VPN: closing the old VPN interface failed, guid=${MmkvManager.getSelectServer()}", e)
             }
-        } catch (e: Exception) {
-            LogUtil.w(AppConfig.TAG, "StartCore-VPN: closing the old VPN interface failed, guid=${MmkvManager.getSelectServer()}", e)
-        }
 
-        // Configure platform-specific features
-        configurePlatformFeatures(builder)
+            // Configure platform-specific features
+            configurePlatformFeatures(builder)
 
-        // Create a new interface using the builder and save the parameters
-        try {
+            // Create a new interface using the builder and save the parameters
             mInterface = establishFallingBackToIpv4(ipv6, { builder.establish()!! }, ::establishWithoutIpv6) { e ->
                 LogUtil.w(AppConfig.TAG, "StartCore-VPN: establishing the VPN interface with IPv6 failed, trying without IPv6, guid=${MmkvManager.getSelectServer()}", e)
             }
             isRunning = true
             return true
         } catch (e: Exception) {
-            LogUtil.e(AppConfig.TAG, "StartCore-VPN: establishing the VPN interface failed, guid=${MmkvManager.getSelectServer()}", e)
+            LogUtil.e(AppConfig.TAG, "StartCore-VPN: setting up the VPN interface failed, guid=${MmkvManager.getSelectServer()}", e)
             stopAllService()
         }
         return false
