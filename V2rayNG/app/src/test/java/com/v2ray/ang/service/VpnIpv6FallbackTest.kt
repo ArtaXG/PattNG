@@ -37,7 +37,8 @@ class VpnIpv6FallbackTest {
 
     @Test
     fun `an interface refused with IPv6 is established again without it`() {
-        val refusal = IllegalArgumentException("At least one address must be specified")
+        // What Android throws when the kernel refuses the IPv6 address.
+        val refusal = IllegalStateException("Cannot set address")
         var reported: Exception? = null
 
         val established = establishFallingBackToIpv4(true, failing("first", refusal), interfaceOf("ipv4")) {
@@ -63,8 +64,21 @@ class VpnIpv6FallbackTest {
         // With IPv6, the second try's failure is the one that ends the start.
         calls.clear()
         assertSame(failure, assertThrows(IllegalStateException::class.java) {
-            establishFallingBackToIpv4(true, failing("first", IllegalArgumentException()), failing("ipv4", failure)) { calls += "refused" }
+            establishFallingBackToIpv4(true, failing("first", IllegalStateException("Cannot set address")), failing("ipv4", failure)) { calls += "refused" }
         })
         assertEquals(listOf("first", "refused", "ipv4"), calls)
+    }
+
+    @Test
+    fun `an interface without IPv6 takes no IPv6 DNS server once IPv6 was refused`() {
+        val servers = listOf("8.8.8.8", "2001:4860:4860::8888", "dns.google")
+
+        // As before: every address.
+        assertEquals(listOf("8.8.8.8", "2001:4860:4860::8888"), vpnDnsServers(servers, ipv6Dns = true))
+        // An IPv6 one would leave the VPN's IPv6 unblocked.
+        assertEquals(listOf("8.8.8.8"), vpnDnsServers(servers, ipv6Dns = false))
+        // With none left, the default VPN DNS rather than the default network's.
+        assertEquals(listOf("8.8.8.8"), vpnDnsServers(listOf("2001:4860:4860::8888"), ipv6Dns = false))
+        assertEquals(listOf("1.1.1.1"), vpnDnsServers(listOf("1.1.1.1", "2606:4700:4700::1111"), ipv6Dns = false))
     }
 }

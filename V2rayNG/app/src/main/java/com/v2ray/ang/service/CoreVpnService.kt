@@ -197,7 +197,7 @@ class CoreVpnService : VpnService(), ServiceControl {
                 mInterface.close()
             }
         } catch (e: Exception) {
-            LogUtil.w(AppConfig.TAG, "Failed to close old interface", e)
+            LogUtil.w(AppConfig.TAG, "StartCore-VPN: closing the old VPN interface failed, guid=${MmkvManager.getSelectServer()}", e)
         }
 
         // Configure platform-specific features
@@ -211,7 +211,7 @@ class CoreVpnService : VpnService(), ServiceControl {
             isRunning = true
             return true
         } catch (e: Exception) {
-            LogUtil.e(AppConfig.TAG, "Failed to establish VPN interface", e)
+            LogUtil.e(AppConfig.TAG, "StartCore-VPN: establishing the VPN interface failed, guid=${MmkvManager.getSelectServer()}", e)
             stopAllService()
         }
         return false
@@ -222,7 +222,7 @@ class CoreVpnService : VpnService(), ServiceControl {
      */
     private fun establishWithoutIpv6(): ParcelFileDescriptor {
         val builder = Builder()
-        configureNetworkSettings(builder, ipv6 = false)
+        configureNetworkSettings(builder, ipv6 = false, ipv6Refused = true)
         configurePerAppProxy(builder)
         configurePlatformFeatures(builder)
         return builder.establish()!!
@@ -234,8 +234,9 @@ class CoreVpnService : VpnService(), ServiceControl {
      *
      * @param builder The VPN Builder to configure
      * @param ipv6 Whether the interface takes the IPv6 address and routes
+     * @param ipv6Refused Whether the kernel refused IPv6, when IPv6 DNS servers stay off too ([vpnDnsServers])
      */
-    private fun configureNetworkSettings(builder: Builder, ipv6: Boolean) {
+    private fun configureNetworkSettings(builder: Builder, ipv6: Boolean, ipv6Refused: Boolean = false) {
         val vpnConfig = SettingsManager.getCurrentVpnInterfaceAddressConfig()
         val bypassLan = SettingsManager.routingRulesetsBypassLan()
 
@@ -267,10 +268,8 @@ class CoreVpnService : VpnService(), ServiceControl {
         //if (MmkvManager.decodeSettingsBool(AppConfig.PREF_LOCAL_DNS_ENABLED) == true) {
         //  builder.addDnsServer(PRIVATE_VLAN4_ROUTER)
         //} else {
-        SettingsManager.getVpnDnsServers().forEach {
-            if (Utils.isPureIpAddress(it)) {
-                builder.addDnsServer(it)
-            }
+        vpnDnsServers(SettingsManager.getVpnDnsServers(), ipv6Dns = !ipv6Refused).forEach {
+            builder.addDnsServer(it)
         }
 
         //builder.setSession(V2RayServiceManager.getRunningServerName())
@@ -409,7 +408,8 @@ class CoreVpnService : VpnService(), ServiceControl {
 /**
  * PattNG: establishes the VPN interface through [establish], and when that fails while the interface takes IPv6,
  * once more through [establishWithoutIpv6]: a kernel with IPv6 turned off refuses the IPv6 address, and the VPN
- * then runs on IPv4 alone, which leaves the device's IPv6 blocked. A failure without IPv6 stays a failure.
+ * then runs on IPv4 alone, its DNS servers included ([vpnDnsServers]), which blocks IPv6 for the apps it covers.
+ * A failure without IPv6 stays a failure.
  */
 internal fun <T> establishFallingBackToIpv4(
     ipv6: Boolean,
@@ -426,4 +426,14 @@ internal fun <T> establishFallingBackToIpv4(
         onIpv6Refused(e)
         establishWithoutIpv6()
     }
+}
+
+/**
+ * PattNG: the VPN interface's DNS servers, the addresses among [servers]. Without [ipv6Dns], IPv6 ones are left out:
+ * Android leaves a VPN's IPv6 unblocked once it has an IPv6 DNS server, and IPv6 would then go around the VPN. With
+ * none left, [AppConfig.DNS_VPN], as the default network's servers would be used otherwise.
+ */
+internal fun vpnDnsServers(servers: List<String>, ipv6Dns: Boolean): List<String> {
+    val addresses = servers.filter { Utils.isPureIpAddress(it) && (ipv6Dns || !it.contains(':')) }
+    return if (ipv6Dns || addresses.isNotEmpty()) addresses else listOf(AppConfig.DNS_VPN)
 }
