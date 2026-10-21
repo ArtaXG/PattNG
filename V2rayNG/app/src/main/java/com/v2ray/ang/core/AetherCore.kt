@@ -227,10 +227,9 @@ data class AetherExit(
         /** An exit-node with nothing set, as the core of a custom configuration dials out through. */
         val PLAIN = AetherExit()
 
-        /** The exit-node of the core of [profile]: the profile it names as its node, or else a plain one with its finalMask and dialMode. */
+        /** The exit-node of the core of [profile]: a plain one with its finalMask and dialMode. */
         fun of(profile: ProfileItem): AetherExit =
-            profile.aetherExitNode.nullIfBlank()?.let { AetherExit(node = it.trim()) }
-                ?: AetherExit(profile.finalMask.nullIfBlank(), profile.dialMode.nullIfBlank())
+            AetherExit(profile.finalMask.nullIfBlank(), profile.dialMode.nullIfBlank())
 
         /**
          * Whether [profile] can be an exit-node: a profile a proxy chain takes for a hop, and no Aether one, whose

@@ -319,18 +319,25 @@ object CoreConfigContextBuilder {
      * them, and the configuration is refused for it.
      */
     private fun resolveProxyChainProfilesFromGroup(config: ProfileItem): Pair<List<ProfileItem>, CoreConfigContext.UnresolvedName?> {
+        val (exitNodeProfiles, exitNodeUnresolved) = if (config.configType == EConfigType.AETHER && !config.aetherExitNode.isNullOrBlank()) {
+            proxyChainHops(listOfNotNull(config.aetherExitNode), SettingsManager::findServerViaRemarks)
+        } else {
+            emptyList<ProfileItem>() to null
+        }
+
         if (config.subscriptionId.isEmpty()) {
-            return listOf(config) to null
+            return (exitNodeProfiles + config) to exitNodeUnresolved
         }
 
         try {
-            val subItem = MmkvManager.decodeSubscription(config.subscriptionId) ?: return listOf(config) to null
+            val subItem = MmkvManager.decodeSubscription(config.subscriptionId)
+                ?: return (exitNodeProfiles + config) to exitNodeUnresolved
             val (next, nextUnresolved) = proxyChainHops(listOfNotNull(subItem.nextProfile), SettingsManager::findServerViaRemarks)
             val (prev, prevUnresolved) = proxyChainHops(listOfNotNull(subItem.prevProfile), SettingsManager::findServerViaRemarks)
-            return next + config + prev to (nextUnresolved ?: prevUnresolved)
+            return (next + exitNodeProfiles + config + prev) to (exitNodeUnresolved ?: nextUnresolved ?: prevUnresolved)
         } catch (e: Exception) {
             LogUtil.e(AppConfig.TAG, "Failed to resolve proxy chain from group for '${config.remarks}'", e)
-            return listOf(config) to null
+            return (exitNodeProfiles + config) to exitNodeUnresolved
         }
     }
 

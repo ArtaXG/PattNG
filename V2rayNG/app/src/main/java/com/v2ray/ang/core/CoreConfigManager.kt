@@ -436,12 +436,9 @@ object CoreConfigManager {
         }
 
         val aetherHop = chain.indexOfFirst { it.first.configType == EConfigType.AETHER }
-        val exitNodeTaken = AppConfig.TAG_EXIT_NODE in existingTags
         val chainTags = chainOutbounds.mapIndexed { index, _ ->
             if (index == 0) {
                 resolvedOutbound.tag
-            } else if (aetherHop >= 0 && index == aetherHop + 1 && !exitNodeTaken) {
-                AppConfig.TAG_EXIT_NODE
             } else {
                 "${AppConfig.TAG_PROXY}-${resolvedOutbound.tag}-$index"
             }
